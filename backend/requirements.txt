@@ -1,0 +1,14 @@
+flask
+flask-restx
+pyJWT
+pymongo
+python-dotenv
+pinecone
+google-genai
+pdfplumber
+python-docx
+bcrypt
+werkzeug
+flask-jwt-extended
+pytest
+mongomock
