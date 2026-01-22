@@ -12,3 +12,5 @@ werkzeug
 flask-jwt-extended
 pytest
 mongomock
+flask_cors
+sentence-transformers

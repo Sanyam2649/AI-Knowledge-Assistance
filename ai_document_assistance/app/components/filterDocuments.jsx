@@ -15,7 +15,7 @@ const handleDelete = async (documentId) => {
 
   try {
     const res = await fetch(
-      `${process.env.NEXT_APP_BACKEND_API}/documents/delete/${documentId}`,
+      `${process.env.NEXT_PUBLIC_BACKEND_API}/documents/delete/${documentId}`,
       {
         method: 'DELETE',
         headers: {

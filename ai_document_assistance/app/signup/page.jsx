@@ -29,7 +29,7 @@ export default function SignUpPage() {
     setError("");
 
     try {
-      const res = await fetch(`${process.env.NEXT_APP_BACKEND_API}/auth/register`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API}/auth/register`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
