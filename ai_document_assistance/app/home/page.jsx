@@ -52,7 +52,7 @@ export default function AIDocAnalyzer() {
     formData.append('sessionId', sessionId);
 
     try {
-      const res = await fetch('http://127.0.0.1:5050/documents/upload', {
+      const res = await fetch(`${process.env.NEXT_APP_BACKEND_API}/documents/upload`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -107,7 +107,7 @@ export default function AIDocAnalyzer() {
 
     setLoadingDocuments(true);
     try {
-      const res = await fetch('http://127.0.0.1:5050/documents/list', {
+      const res = await fetch(`${process.env.NEXT_APP_BACKEND_API}/documents/list`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -156,7 +156,7 @@ export default function AIDocAnalyzer() {
 
     setLoadingChatHistory(true);
     try {
-      const res = await fetch("http://127.0.0.1:5050/chat/all-history", {
+      const res = await fetch(`${process.env.NEXT_APP_BACKEND_API}/chat/all-history`, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -211,7 +211,7 @@ export default function AIDocAnalyzer() {
     setLoadingSendMessage(true);
 
     try {
-      const res = await fetch("http://127.0.0.1:5050/chat/ask", {
+      const res = await fetch(`${process.env.NEXT_APP_BACKEND_API}/chat/ask`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -261,7 +261,7 @@ export default function AIDocAnalyzer() {
     setLoadingDeleteChat(true);
     try {
       const res = await fetch(
-        `http://127.0.0.1:5050/chat/delete-chat?sessionId=${sessionId}`,
+        `${process.env.NEXT_APP_BACKEND_API}/chat/delete-chat?sessionId=${sessionId}`,
         {
           method: "DELETE",
           headers: {

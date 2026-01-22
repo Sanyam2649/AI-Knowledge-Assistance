@@ -27,7 +27,7 @@ export default function SignInPage() {
     setError("");
 
     try {
-      const res = await fetch("http://127.0.0.1:5050/auth/login", {
+      const res = await fetch(`${process.env.NEXT_APP_BACKEND_API}/auth/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

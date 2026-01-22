@@ -15,7 +15,7 @@ const handleDelete = async (documentId) => {
 
   try {
     const res = await fetch(
-      `http://127.0.0.1:5050/documents/delete/${documentId}`,
+      `${process.env.NEXT_APP_BACKEND_API}/documents/delete/${documentId}`,
       {
         method: 'DELETE',
         headers: {
