@@ -1,13 +1,15 @@
 import time
-from lib.vectorDB import get_pinecone_index, get_pinecone_chat_index
-from configuration.embedding import embed_text
-from pymongo import MongoClient
-from datetime import datetime
 import re
-from configuration.Database import db
+from lib.vectorDB import get_pinecone_index, get_pinecone_chat_index
+from configuration.embedding import EXPECTED_EMBEDDING_DIM, embed_texts
 from configuration.llm_client import llm
 
-chatSession = db["chat_sessions"]
+
+def is_greeting(query: str) -> bool:
+    return bool(re.match(
+        r"^(hi|hello|hey|hii|hola|good morning|good evening|good afternoon)\b",
+        query.strip().lower()
+    ))
 
 def generate_vector_id(file_name: str, chunk_index: int) -> str:
     safe_file_name = "".join(c if c.isalnum() else "_" for c in file_name)[:50]
@@ -19,31 +21,22 @@ def generate_chat_vector_id(session_id: str, timestamp=None) -> str:
         timestamp = int(time.time() * 1000)
     return f"{session_id}-{timestamp}"
 
-def message_schema(data):
-    return {
-        "role": data["role"],
-        "message": data["message"],
-        "timestamp": data.get("timestamp", datetime.utcnow())
-    }
-
-def chat_session_schema(data):
-    return {
-        "userId": data["userId"],
-        "sessionId": data["sessionId"],
-        "messages": data.get("messages", []),
-        "createdAt": datetime.utcnow(),
-        "updatedAt": datetime.utcnow()
-    }
-
 def store_documents(documents: list, user_id: str, session_id: str):
     index = get_pinecone_index()
     try:
-        print(f"📦 Generating embeddings for {len(documents)} documents")
+        print(f"📦 Generating embeddings for {len(documents)} documents...")
+
         texts = [doc["text"] for doc in documents]
-        embeddings = [embed_text(t) for t in texts]
+        embeddings = embed_texts(texts)
 
         vectors = []
         for i, doc in enumerate(documents):
+            if len(embeddings[i]) != EXPECTED_EMBEDDING_DIM:
+                raise ValueError(
+                    f"Embedding dimension mismatch for chunk {i}: "
+                    f"expected {EXPECTED_EMBEDDING_DIM}, got {len(embeddings[i])}"
+                )
+
             vectors.append({
                 "id": generate_vector_id(doc["metadata"]["fileName"], doc["metadata"]["chunkIndex"]),
                 "values": embeddings[i],
@@ -71,12 +64,17 @@ def store_documents(documents: list, user_id: str, session_id: str):
         return {"success": False, "error": str(e)}
 
 def save_message_to_vector_store(user_id: str, session_id: str, role: str, message: str):
+    """
+    Save a single chat message as a vector in Pinecone only (no MongoDB storage).
+    """
     try:
         index = get_pinecone_chat_index()
-        print(f"💬 Generating embedding for chat message (user: {user_id}, session: {session_id})...")
-        vector = embed_text(message)
-        vector_id = generate_chat_vector_id(session_id)
+        print(f"💬 Generating embedding for chat message...")
 
+        # Batch embedding even for single message (validates shape)
+        vector = embed_texts([message])[0]
+
+        vector_id = generate_chat_vector_id(session_id)
         payload = {
             "id": vector_id,
             "values": vector,
@@ -89,118 +87,39 @@ def save_message_to_vector_store(user_id: str, session_id: str, role: str, messa
             }
         }
 
-        print(f"🚀 Saving chat message vector {vector_id} to Pinecone...")
         index.upsert([payload])
-
-        # Also save in MongoDB
-        chatSession.update_one(
-            {"userId": user_id, "sessionId": session_id},
-            {"$push": {"messages": message_schema({"role": role, "message": message})},
-             "$set": {"updatedAt": datetime.utcnow()}},
-            upsert=True
-        )
+        print(f"🚀 Message vector saved with id: {vector_id}")
 
         return {"success": True, "id": vector_id}
+
     except Exception as e:
-        print(f"❌ Error saving message: {e}")
-        return {"success": False, "error": str(e)}
-
-def search_similar_messages(query: str, user_id: str, session_id: str, top_k=5):
-    try:
-        index = get_pinecone_chat_index()
-        query_vector = embed_text(query)
-
-        results = index.query(
-            vector=query_vector,
-            top_k=top_k,
-            filter={"userId": user_id, "sessionId": session_id},
-            include_metadata=True
-        )
-
-        matches = [{
-            "id": m.id,
-            "score": m.score,
-            "metadata": {
-                "text": m.metadata.get("text", ""),
-                "role": m.metadata.get("role", "user"),
-                "userId": m.metadata.get("userId"),
-                "sessionId": m.metadata.get("sessionId")
-            }
-        } for m in results.matches] if results.matches else []
-
-        return {"success": True, "matches": matches}
-    except Exception as e:
-        print(f"❌ Error searching chat messages: {e}")
-        return {"success": False, "error": str(e)}
-
-def delete_chat_session(session_id: str, user_id: str):
-    try:
-        index = get_pinecone_chat_index()
-        index.delete(filter={"sessionId": session_id})
-        chatSession.delete_one({"sessionId": session_id, "userId": user_id})
-        return {"success": True, "message": f"Deleted chat session for user {user_id}, session {session_id}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-def delete_long_term_memory(session_id: str, user_id: str):
-    try:
-        result = chatSession.delete_one({"sessionId": session_id, "userId": user_id})
-        if result.deleted_count == 0:
-            return {"success": False, "message": "No long-term memory found"}
-        return {"success": True, "message": "Deleted long-term memory successfully"}
-    except Exception as e:
+        print(f"❌ Error saving message to vector store: {e}")
         return {"success": False, "error": str(e)}
 
 def search_similar_documents(query: str, user_id: str, session_id: str, limit=5):
     """
-    Search documents in Pinecone for a user with hybrid scoring:
-    semantic score (from embeddings) + keyword relevance.
-    
-    Documents are searchable across all sessions for a user.
-    First tries current session, then falls back to all user documents.
+    Single Pinecone query with hybrid reranking.
     """
     index = get_pinecone_index()
     try:
-        print(f"🔍 Searching for: '{query[:50]}...' (User: {user_id}, Session: {session_id})")
-        query_vector = embed_text(query)
+        query_vector = embed_texts([query])[0]
 
-        # First try: search with current sessionId (for backward compatibility)
         search_response = index.query(
             vector=query_vector,
-            top_k=max(limit * 3, 15),
+            top_k=50,
             include_metadata=True,
             include_values=False,
-            filter={"userId": user_id, "sessionId": session_id}
+            filter={"userId": user_id}
         )
 
-        # If no results in current session, search across all user sessions
         if not search_response.matches:
-            print(f"📋 No documents found in current session, searching across all user sessions...")
-            search_response = index.query(
-                vector=query_vector,
-                top_k=max(limit * 3, 15),
-                include_metadata=True,
-                include_values=False,
-                filter={"userId": user_id}  # Only filter by userId, not sessionId
-            )
-            if search_response.matches:
-                print(f"✅ Found {len(search_response.matches)} documents from previous sessions")
+            return {"success": True, "matches": [], "totalFound": 0, "message": "No matches found"}
 
-        if not search_response.matches:
-            return {
-                "success": True,
-                "matches": [],
-                "totalFound": 0,
-                "message": "No matches found"
-            }
-
-        # ---------- Hybrid Scoring ----------
         scored_matches = []
         for match in search_response.matches:
             semantic_score = match.score
             keyword_score = calculate_keyword_relevance(match.metadata.get("text", ""), query)
-            normalized_keyword_score = min(keyword_score / 5, 1)
-            hybrid_score = (semantic_score * 0.6) + (normalized_keyword_score * 0.4)
+            hybrid_score = semantic_score * 0.6 + min(keyword_score / 5, 1) * 0.4
 
             scored_matches.append({
                 "id": match.id,
@@ -210,16 +129,13 @@ def search_similar_documents(query: str, user_id: str, session_id: str, limit=5)
                 "metadata": match.metadata
             })
 
-        # Filter & sort by hybrid score
-        relevant_matches = [m for m in scored_matches if m["hybridScore"] >= 0.15]
-        relevant_matches.sort(key=lambda x: x["hybridScore"], reverse=True)
-        relevant_matches = relevant_matches[:limit]
+        top_matches = sorted(scored_matches, key=lambda m: m["hybridScore"], reverse=True)[:limit]
 
         return {
             "success": True,
-            "matches": relevant_matches if relevant_matches else scored_matches[:limit],
+            "matches": top_matches,
             "totalFound": len(search_response.matches),
-            "message": f"Found {len(relevant_matches)} relevant matches"
+            "message": f"Found {len(top_matches)} relevant matches"
         }
 
     except Exception as e:
@@ -227,66 +143,103 @@ def search_similar_documents(query: str, user_id: str, session_id: str, limit=5)
         return {"success": False, "error": str(e), "matches": []}
 
 def calculate_keyword_relevance(text: str, query: str) -> float:
-    """
-    Simple keyword relevance scoring:
-    - Ignores short/common words
-    - Counts occurrence of keywords in text
-    """
     stop_words = {"what", "how", "when", "where", "which", "with", "from", "the", "and", "for"}
-    query_keywords = [word.lower() for word in re.findall(r'\b\w+\b', query) 
-                      if len(word) >= 3 and word.lower() not in stop_words]
-
+    query_keywords = [w.lower() for w in re.findall(r'\b\w+\b', query)
+                      if len(w) >= 3 and w.lower() not in stop_words]
     if not query_keywords:
         return 0
-
-    text_lower = text.lower()
-    score = 0
-    for kw in query_keywords:
-        matches = re.findall(rf'\b{re.escape(kw)}\b', text_lower)
-        if matches:
-            score += len(matches)
-
+    score = sum(len(re.findall(rf'\b{re.escape(kw)}\b', text.lower())) for kw in query_keywords)
     return score / len(query_keywords)
 
-
-def answer_question(query: str, user_id: str, session_id: str, top_k: int = 5) -> str:
+def answer_question(query: str, user_id: str, session_id: str, top_k: int = 5, max_context_chars: int = 4000) -> str:
     """
-    Full RAG pipeline:
-    query → Pinecone → context → LLM → answer
-    """
-    search_result = search_similar_documents(
-        query=query,
-        user_id=user_id,
-        session_id=session_id,
-        limit=top_k
-    )
+    Retrieves top relevant documents from Pinecone, constructs a context, 
+    and asks the LLM (Gemini) to answer based only on the retrieved context.
 
+    Args:
+        query: User question
+        user_id: ID of the user
+        session_id: Current chat session
+        top_k: Number of top documents to retrieve
+        max_context_chars: Maximum characters of context to send to LLM
+
+    Returns:
+        str: LLM-generated answer or fallback message
+    """
+    
+    if is_greeting(query):
+       return "Hi! 👋 How can I help you?"
+
+    search_result = search_similar_documents(query, user_id, session_id, limit=top_k)
     matches = search_result.get("matches", [])
+
     if not matches:
         return "I couldn't find relevant information in your uploaded documents for that question."
 
-    # Build context from top matches
-    context = "\n\n".join(
-        f"- {m['text']}" for m in matches if m.get("text")
-    )
+    # 2️⃣ Rerank matches using hybridScore descending
+    matches.sort(key=lambda x: x.get("hybridScore", 0), reverse=True)
+
+    # 3️⃣ Build context safely
+    context_parts = []
+    chars_used = 0
+    for m in matches:
+        text = m.get("text", "")
+        if not text:
+            continue
+        if chars_used + len(text) > max_context_chars:
+            break
+        context_parts.append(f"- {text}")
+        chars_used += len(text)
+
+    context = "\n\n".join(context_parts)
 
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a document-based assistant.\n"
-                "Answer ONLY using the provided context.\n"
-                "If the answer is not present, say you don't know."
-            )
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Context:\n{context}\n\n"
-                f"Question:\n{query}"
-            )
-        }
-    ]
+{
+  "role": "system",
+  "content": (
+    "You are a professional analytical assistant. Answer strictly using the provided context.\n\n"
 
-    response = llm.chat_completion(messages=messages)
-    return response["choices"][0]["message"]["content"]
+    "Hard constraints:\n"
+    "- Maximum length: 120–150 words total.\n"
+    "- Prefer short paragraphs or compact bullet points.\n"
+    "- No filler, no repetition, no examples unless essential.\n"
+    "- Do NOT restate the question.\n"
+    "- Focus only on key points that directly answer the question.\n\n"
+
+    "Formatting rules:\n"
+    "- Use at most 3 section headings.\n"
+    "- Each section may have at most 3 bullet points.\n"
+    "- Each bullet must be one sentence only.\n\n"
+
+    "Content rules:\n"
+    "- Use ONLY the given context.\n"
+    "- Synthesize and condense; do not quote or paraphrase excessively.\n"
+    "- If the context is insufficient, respond exactly with:\n"
+    "  'I don't know based on the provided documents.'"
+  )
+},
+
+{
+  "role": "user",
+  "content": (
+      f"Context:\n{context}\n\n"
+      f"Question:\n{query}\n\n"
+      "Answer concisely using only the context.\n"
+      "- Key points only\n"
+      "- Short bullets or brief paragraphs\n"
+      "- No introductions, no conclusions, no filler"
+  )
+}
+         ]
+
+
+    try:
+        response = llm.chat_completion(messages=messages)
+        answer = response["choices"][0]["message"]["content"].strip()
+        if not answer:
+            return "I couldn't find relevant information in your uploaded documents for that question."
+        return answer
+    except Exception as e:
+        print(f"❌ LLM error: {e}")
+        return "I couldn't generate an answer at this time. Please try again later."
+

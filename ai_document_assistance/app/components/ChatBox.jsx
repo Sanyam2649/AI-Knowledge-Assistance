@@ -17,20 +17,64 @@ const ChatBox = ({messages=[] , messagesEndRef, loadingSendMessage}) => {
             </div>
           ) : (
             <>
-              {messages.map(msg => (
-                <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-2xl ${
-                    msg.type === 'user' 
-                      ? 'bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl rounded-tr-sm' 
-                      : msg.type === 'system'
-                      ? 'bg-blue-500/20 border border-blue-500/30 rounded-xl'
-                      : 'bg-white/10 backdrop-blur-sm rounded-2xl rounded-tl-sm'
-                  } p-4 shadow-lg`}>
-                    <p className="text-sm leading-relaxed">{msg.content}</p>
-                    <p className="text-xs text-gray-400 mt-2">{msg.timestamp}</p>
-                  </div>
-                </div>
-              ))}
+{messages.map(msg => {
+  // Function to convert plain text lists to formatted JSX
+  const formatContent = (text) => {
+    if (!text) return null;
+
+    // Normalize line breaks
+    const lines = text.replace(/\r\n|\r/g, '\n').split('\n');
+
+    return lines.map((line, idx) => {
+      // Bullet points
+      if (/^\s*[\*\-]\s+/.test(line)) {
+        return (
+          <p key={idx} className="text-sm leading-relaxed pl-4 relative before:absolute before:left-0 before:top-1 before:w-2 before:h-2 before:bg-gray-400 before:rounded-full">
+            {line.replace(/^\s*[\*\-]\s+/, '')}
+          </p>
+        );
+      }
+
+      // Numbered lists
+      if (/^\s*\d+\.\s+/.test(line)) {
+        return (
+          <p key={idx} className="text-sm leading-relaxed pl-6">
+            {line.replace(/^\s*\d+\.\s+/, '')}
+          </p>
+        );
+      }
+
+      // Normal text
+      return (
+        <p key={idx} className="text-sm leading-relaxed">
+          {line}
+        </p>
+      );
+    });
+  };
+
+  return (
+    <div
+      key={msg.id}
+      className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}
+    >
+      <div
+        className={`max-w-2xl ${
+          msg.type === 'user'
+            ? 'bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl rounded-tr-sm'
+            : msg.type === 'system'
+            ? 'bg-blue-500/20 border border-blue-500/30 rounded-xl'
+            : 'bg-white/10 backdrop-blur-sm rounded-2xl rounded-tl-sm'
+        } p-4 shadow-lg relative`}
+      >
+        {/* Formatted message content */}
+        <div className="whitespace-pre-line">{formatContent(msg.content)}</div>
+        <p className="text-xs text-gray-400 mt-2">{msg.timestamp}</p>
+      </div>
+    </div>
+  );
+})}
+
               {loadingSendMessage && (
                 <div className="flex justify-start">
                   <div className="bg-white/10 backdrop-blur-sm rounded-2xl rounded-tl-sm p-4 shadow-lg flex items-center gap-2">

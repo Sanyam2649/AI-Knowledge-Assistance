@@ -16,15 +16,93 @@ export default function SignUpPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  
+  const [passwordStrength, setPasswordStrength] = useState(0);
     useEffect(() => {
       if (token) {
         router.replace("/home");
       }
     }, [token, router]);
 
+
+  const handleChange = (e) => {
+    const value = e.target.value;
+    setPassword(value);
+
+    let strength = 0;
+    if (value.length >= 8) strength++;
+    if (/[A-Z]/.test(value)) strength++;
+    if (/[0-9]/.test(value)) strength++;
+    if (/[^A-Za-z0-9]/.test(value)) strength++;
+
+    setPasswordStrength(strength);
+  };
+
+  const validateForm = () => {
+    if (!firstName.trim() || !lastName.trim()) {
+      return "First and last name are required";
+    }
+
+    if (!/^[a-zA-Z\s'-]{2,}$/.test(firstName) || !/^[a-zA-Z\s'-]{2,}$/.test(lastName)) {
+      return "Name must contain only letters and be at least 2 characters";
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return "Invalid email address";
+    }
+
+    if (!/^\d{10}$/.test(phone)) {
+      return "Phone number must be exactly 10 digits";
+    }
+
+    if (
+      password.length < 5 ||
+      !/[A-Z]/.test(password) ||
+      !/[a-z]/.test(password) ||
+      !/\d/.test(password)
+    ) {
+      return "Password must be 8+ chars with uppercase, lowercase, and number";
+    }
+
+    return null;
+  };
+
+  const getPasswordStrengthColor = () => {
+    switch (passwordStrength) {
+      case 0:
+      case 1:
+        return "bg-red-500";
+      case 2:
+        return "bg-yellow-500";
+      case 3:
+        return "bg-blue-500";
+      case 4:
+        return "bg-green-500";
+      default:
+        return "bg-red-500";
+    }
+  };
+
+  const getPasswordStrengthText = () => {
+    switch (passwordStrength) {
+      case 0: return "Very Weak";
+      case 1: return "Weak";
+      case 2: return "Fair";
+      case 3: return "Good";
+      case 4: return "Strong";
+      default: return "";
+    }
+  };
+
+
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const validationError = validateForm();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setLoading(true);
     setError("");
 
@@ -128,7 +206,12 @@ export default function SignUpPage() {
                        focus:outline-none focus:ring-2
                        focus:ring-[var(--color-primary)]"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, ""); // digits only
+                  if (value.length <= 10) {
+                    setPhone(value);
+                  }
+                }}
                 required
               />
             </div>
@@ -146,7 +229,9 @@ export default function SignUpPage() {
                  focus:outline-none focus:ring-2
                  focus:ring-[var(--color-primary)]"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                name='password'
+                // onChange={(e) => setPassword(e.target.value)}
+                onChange={handleChange}
                 required
               />
 
@@ -164,6 +249,22 @@ export default function SignUpPage() {
                 )}
               </button>
             </div>
+
+            {password && (
+              <div className="mt-2">
+                <div className="flex justify-between text-xs mb-1">
+                  <span>Password Strength</span>
+                  <span className="font-semibold">{getPasswordStrengthText()}</span>
+                </div>
+                <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-300 ${getPasswordStrengthColor()}`}
+                    style={{ width: `${passwordStrength * 25}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
           </div>
 
           {error && (

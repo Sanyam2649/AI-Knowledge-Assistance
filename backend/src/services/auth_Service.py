@@ -104,7 +104,6 @@ def handle_upload_documents(files, user_id, session_id):
                 })
                 continue
 
-            # Persist document + chunks metadata to MongoDB for listing/admin
             doc_insert = documents_collection.insert_one(
                 document_schema({
                     "user_id": user_id,
@@ -115,7 +114,6 @@ def handle_upload_documents(files, user_id, session_id):
             )
             document_id = str(doc_insert.inserted_id)
 
-            # Store chunks in Mongo (embedding is stored in Pinecone; Mongo stores metadata + content)
             mongo_chunk_ids = []
             for c in chunks:
                 chunk_doc = document_chunk_schema({
@@ -127,7 +125,6 @@ def handle_upload_documents(files, user_id, session_id):
                 res = document_chunks_collection.insert_one(chunk_doc)
                 mongo_chunk_ids.append(str(res.inserted_id))
 
-            # Enrich chunks with document id so vectors can reference sources
             for c in chunks:
                 c["metadata"]["documentId"] = document_id
             

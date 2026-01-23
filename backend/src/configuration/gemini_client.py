@@ -67,10 +67,8 @@ class geminiClient:
                     timeout=30
                 )
                 
-                # Handle rate limiting (429) with exponential backoff
                 if response.status_code == 429:
                     if attempt < max_retries - 1:
-                        # Exponential backoff: 2^attempt seconds (2, 4, 8 seconds)
                         wait_time = 2 ** attempt
                         retry_after = response.headers.get('Retry-After')
                         if retry_after:
@@ -89,13 +87,11 @@ class geminiClient:
 
                 data = response.json()
                 
-                # Check if response has candidates
                 if "candidates" not in data or not data["candidates"]:
                     raise ValueError("No candidates in Gemini API response")
                 
                 text = data["candidates"][0]["content"]["parts"][0]["text"]
 
-                # Match OpenAI/Grok response shape
                 return {
                     "choices": [
                         {
@@ -108,16 +104,13 @@ class geminiClient:
                 }
 
             except requests.exceptions.HTTPError as e:
-                # Don't retry on 4xx errors except 429 (already handled above)
                 if e.response and e.response.status_code == 429:
                     last_exception = e
                     continue
                 elif e.response and 400 <= e.response.status_code < 500:
-                    # Client errors (except 429) shouldn't be retried
                     print(f"❌ Gemini API client error ({e.response.status_code}): {e}")
                     raise
                 else:
-                    # Server errors (5xx) can be retried
                     last_exception = e
                     if attempt < max_retries - 1:
                         wait_time = 2 ** attempt
@@ -140,7 +133,6 @@ class geminiClient:
                 print(f"❌ Gemini chat completion error: {e}")
                 raise
         
-        # If we exhausted all retries
         if last_exception:
             raise last_exception
         else:

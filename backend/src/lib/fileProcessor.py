@@ -5,7 +5,10 @@ from datetime import datetime
 from io import BytesIO
 import pdfplumber
 from docx import Document
+from configuration.embedding import model
 
+def count_tokens(text: str) -> int:
+    return len(model.tokenizer.tokenize(text))
 
 def validate_file(file_path: str):
     max_size = 10 * 1024 * 1024 
@@ -25,7 +28,6 @@ def validate_file(file_path: str):
         return {"valid": False, "error": "Unsupported file type. Upload PDF, DOCX, or TXT"}
 
     return {"valid": True}
-
 
 def validate_upload(file) -> dict:
     """
@@ -139,28 +141,70 @@ def clean_text(text: str):
             .strip()
     )
 
-def chunk_text(text: str, file_name: str, file_type: str, file_size: int, page_count: int = 0, chunk_size=600, overlap=80):
+def chunk_text(
+    text: str,
+    file_name: str,
+    file_type: str,
+    file_size: int,
+    page_count: int = 0,
+    max_tokens: int = 300,
+    overlap_tokens: int = 50
+):
     chunks = []
-    sentences = [s.strip() + ' ' for s in re.split(r'(?<=[.!?])\s+', text) if len(s.strip()) > 10]
 
-    current_chunk = ''
+    sentences = [
+        s.strip() + " "
+        for s in re.split(r'(?<=[.!?])\s+', text)
+        if len(s.strip()) > 10
+    ]
+
+    current_chunk = ""
+    current_tokens = 0
+
     for sentence in sentences:
-        if len(current_chunk) + len(sentence) > chunk_size and len(current_chunk) > 0:
-            if len(current_chunk.strip()) > 30:
-                chunks.append(create_chunk(current_chunk, file_name, file_type, file_size, len(chunks), page_count))
-            # overlap last 2 sentences
-            last_sentences = current_chunk.split('. ')[-2:]
-            current_chunk = '. '.join(last_sentences) + ' ' + sentence
+        sentence_tokens = count_tokens(sentence)
+
+        if current_tokens + sentence_tokens > max_tokens and current_chunk:
+            chunks.append(
+                create_chunk(
+                    current_chunk,
+                    file_name,
+                    file_type,
+                    file_size,
+                    len(chunks),
+                    page_count
+                )
+            )
+
+            # token-based overlap
+            overlap_text = ""
+            for s in reversed(sentences):
+                overlap_text = s + overlap_text
+                if count_tokens(overlap_text) >= overlap_tokens:
+                    break
+
+            current_chunk = overlap_text + sentence
+            current_tokens = count_tokens(current_chunk)
+
         else:
             current_chunk += sentence
+            current_tokens += sentence_tokens
 
-    if len(current_chunk.strip()) > 30:
-        chunks.append(create_chunk(current_chunk, file_name, file_type, file_size, len(chunks), page_count))
+    if current_chunk.strip():
+        chunks.append(
+            create_chunk(
+                current_chunk,
+                file_name,
+                file_type,
+                file_size,
+                len(chunks),
+                page_count
+            )
+        )
 
-    # Update totalChunks in metadata
     for idx, chunk in enumerate(chunks):
-        chunk['metadata']['totalChunks'] = len(chunks)
-        chunk['metadata']['chunkIndex'] = idx
+        chunk["metadata"]["totalChunks"] = len(chunks)
+        chunk["metadata"]["chunkIndex"] = idx
 
     return chunks
 

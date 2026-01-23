@@ -9,6 +9,7 @@ from configuration import Database as db_mod
 from lib.chatSession import save_message, get_chat_history
 from lib.vector_Store import search_similar_documents
 from configuration.gemini_client import gemini
+from lib.vector_Store import answer_question, save_message_to_vector_store
 
 def _get_fallback_message() -> str:
     """
@@ -48,11 +49,8 @@ def _filter_matches_to_enabled_docs(matches: List[Dict[str, Any]], enabled_doc_i
         metadata = m.get("metadata") or {}
         doc_id = metadata.get("documentId")
         
-        # Handle empty string or None
         if not doc_id or doc_id == "":
             missing_doc_id_count += 1
-            # For backward compatibility: if documentId is missing, 
-            # allow the match if user has enabled documents (likely old upload)
             if enabled_doc_ids:
                 print(f"⚠️ Match missing documentId, allowing for backward compatibility")
                 filtered.append(m)
@@ -84,79 +82,79 @@ def _filter_matches_to_enabled_docs(matches: List[Dict[str, Any]], enabled_doc_i
     return filtered
 
 
-def build_rag_context(matches: List[Dict[str, Any]], max_chars: int = 4000) -> Tuple[str, List[Dict[str, Any]]]:
-    """
-    Build a context string plus normalized sources list from Pinecone matches.
-    """
-    sources: List[Dict[str, Any]] = []
-    parts: List[str] = []
-    used = 0
+# def build_rag_context(matches: List[Dict[str, Any]], max_chars: int = 4000) -> Tuple[str, List[Dict[str, Any]]]:
+#     """
+#     Build a context string plus normalized sources list from Pinecone matches.
+#     """
+#     sources: List[Dict[str, Any]] = []
+#     parts: List[str] = []
+#     used = 0
 
-    for m in matches:
-        md = m.get("metadata") or {}
-        text = (m.get("text") or md.get("text") or "").strip()
-        if not text:
-            continue
+#     for m in matches:
+#         md = m.get("metadata") or {}
+#         text = (m.get("text") or md.get("text") or "").strip()
+#         if not text:
+#             continue
 
-        source = {
-            "documentId": md.get("documentId"),
-            "fileName": md.get("fileName"),
-            "chunkIndex": md.get("chunkIndex"),
-            "score": m.get("hybridScore", m.get("semanticScore", m.get("score"))),
-        }
-        sources.append(source)
+#         source = {
+#             "documentId": md.get("documentId"),
+#             "fileName": md.get("fileName"),
+#             "chunkIndex": md.get("chunkIndex"),
+#             "score": m.get("hybridScore", m.get("semanticScore", m.get("score"))),
+#         }
+#         sources.append(source)
 
-        snippet = text[:1000]
-        block = f"[Source: {source.get('fileName')} | chunk {source.get('chunkIndex')}]\n{snippet}\n"
-        if used + len(block) > max_chars:
-            break
-        parts.append(block)
-        used += len(block)
+#         snippet = text[:1000]
+#         block = f"[Source: {source.get('fileName')} | chunk {source.get('chunkIndex')}]\n{snippet}\n"
+#         if used + len(block) > max_chars:
+#             break
+#         parts.append(block)
+#         used += len(block)
 
-    return "\n".join(parts).strip(), sources
+#     return "\n".join(parts).strip(), sources
 
-def llm_answer_with_gemini(question: str, context: str) -> str:
-    """
-    Uses Gemini LLM to answer grounded strictly in retrieved documents.
-    """
-    if not context:
-        return "I couldn't find relevant information in your uploaded documents for that question."
+# def llm_answer_with_gemini(question: str, context: str) -> str:
+#     """
+#     Uses Gemini LLM to answer grounded strictly in retrieved documents.
+#     """
+#     if not context:
+#         return "I couldn't find relevant information in your uploaded documents for that question."
 
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a document-based assistant.\n"
-                "Answer ONLY using the provided context.\n"
-                "If the answer is not in the context, say you don't know.\n"
-                "Be concise, factual, and helpful."
-            )
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Context:\n{context}\n\n"
-                f"Question:\n{question}"
-            )
-        }
-    ]
+#     messages = [
+#         {
+#             "role": "system",
+#             "content": (
+#                 "You are a document-based assistant.\n"
+#                 "Answer ONLY using the provided context.\n"
+#                 "If the answer is not in the context, say you don't know.\n"
+#                 "Be concise, factual, and helpful."
+#             )
+#         },
+#         {
+#             "role": "user",
+#             "content": (
+#                 f"Context:\n{context}\n\n"
+#                 f"Question:\n{question}"
+#             )
+#         }
+#     ]
     
-    try:
-        response = gemini.chat_completion(
-            messages=messages,
-            temperature=0.1,
-            max_tokens=512
-        )
+#     try:
+#         response = gemini.chat_completion(
+#             messages=messages,
+#             temperature=0.1,
+#             max_tokens=512
+#         )
         
-        if not response or "choices" not in response or not response["choices"]:
-            print("❌ Invalid response format from Gemini API")
-            return _get_fallback_message()
+#         if not response or "choices" not in response or not response["choices"]:
+#             print("❌ Invalid response format from Gemini API")
+#             return _get_fallback_message()
         
-        return response["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        print(f"❌ Error calling Gemini API: {e}")
-        # Return fallback message instead of raising
-        return _get_fallback_message()
+#         return response["choices"][0]["message"]["content"].strip()
+#     except Exception as e:
+#         print(f"❌ Error calling Gemini API: {e}")
+#         # Return fallback message instead of raising
+#         return _get_fallback_message()
 
 
 def ask_rag_question(*, user_id: str, session_id: str, question: str, top_k: int = 5) -> Dict[str, Any]:
@@ -171,7 +169,6 @@ def ask_rag_question(*, user_id: str, session_id: str, question: str, top_k: int
         enabled = _enabled_document_ids_for_user(user_id)
         print(f"📋 Enabled document IDs for user: {enabled}")
         
-        # Debug: show documentIds in matches
         match_doc_ids = []
         for m in search_matches:
             doc_id = (m.get("metadata") or {}).get("documentId")
@@ -201,24 +198,15 @@ def ask_rag_question(*, user_id: str, session_id: str, question: str, top_k: int
                     "success": False,
                     "error": "No relevant documents found. The search results don't match your enabled documents. Please try a different question."
                 }
-
-        context, sources = build_rag_context(matches)
         
-        try:
-            answer = llm_answer_with_gemini(question, context)
-        except Exception as e:
-            error_str = str(e)
-            print(f"❌ Error generating answer with Gemini: {e}")
-            
-            # Use fallback message instead of returning error
-            answer = _get_fallback_message()
-            print(f"📝 Using fallback message due to API error")
+        answer = answer_question(query=question, user_id=user_id, session_id=session_id, top_k=top_k)
 
-        # 3) persist chat (always save, even with fallback message)
         save_message(user_id=user_id, session_id=session_id, role="user", message=question)
         save_message(user_id=user_id, session_id=session_id, role="assistant", message=answer)
+        save_message_to_vector_store(user_id=user_id, session_id=session_id, role="user", message=question),
+        save_message_to_vector_store(user_id=user_id, session_id=session_id, role="assistant", message=answer),
 
-        return {"success": True, "answer": answer, "sources": sources}
+        return {"success": True, "answer": answer}
     except Exception as e:
         print(f"❌ Unexpected error in ask_rag_question: {e}")
         return {"success": False, "error": f"An unexpected error occurred: {str(e)}"}
