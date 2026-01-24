@@ -1,16 +1,19 @@
 from configuration.Database import db
 from models.chat_session import message_schema,chat_session_schema
 from datetime import datetime
+from utils.user_limits import check_user_active, check_chat_limit
 
 def save_message(user_id: str, session_id: str, role: str, message: str):
     """
     Save a single message into a chat session in MongoDB.
     Creates a session if it doesn't exist.
+    Checks user active status and chat limits when creating a new session.
     """
     session = db.chat_sessions.find_one({"userId": user_id, "sessionId": session_id})
     new_message = message_schema({"role": role, "message": message})
 
     if session:
+        # Existing session - just add the message
         db.chat_sessions.update_one(
             {"_id": session["_id"]},
             {
@@ -19,6 +22,20 @@ def save_message(user_id: str, session_id: str, role: str, message: str):
             }
         )
     else:
+        # New session - check user status and limits
+        is_active, error_msg = check_user_active(user_id)
+        if not is_active:
+            return {"success": False, "error": error_msg}
+        
+        can_create, limit_error, limit_info = check_chat_limit(user_id)
+        if not can_create:
+            return {
+                "success": False,
+                "error": limit_error,
+                "limit_info": limit_info
+            }
+        
+        # Create the new session
         new_session = chat_session_schema({
             "userId": user_id,
             "sessionId": session_id,
@@ -85,7 +102,23 @@ def delete_chat(user_id: str, session_id: str):
     """
     Delete an entire chat session from MongoDB.
     """
-    result = db.chat_sessions.delete_one({"userId": user_id, "sessionId": session_id})
-    if result.deleted_count == 0:
-        return {"success": False, "message": "No session found to delete"}
-    return {"success": True, "message": f"Chat session {session_id} deleted successfully"}
+    # result = db.chat_sessions.delete_one({"userId": user_id, "sessionId": session_id})
+    result = db.chat_sessions.update_one(
+        {
+            "userId": user_id,
+            "sessionId": session_id,
+        },
+        {
+            "$set": {
+                "is_active": False,
+                "updatedAt": datetime.utcnow()
+            }
+        }
+    )
+    if result.matched_count == 0:
+        return {"success": False, "message": "No active session found to delete"}
+
+    return {
+        "success": True,
+        "message": f"Chat session {session_id} has been deleted successfully"
+    }

@@ -7,7 +7,7 @@ import { useAuth } from "../context/userContext";
 
 export default function SignUpPage() {
   const router = useRouter();
-  const { token } = useAuth();
+  const { token , user} = useAuth();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -17,11 +17,14 @@ export default function SignUpPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [passwordStrength, setPasswordStrength] = useState(0);
-    useEffect(() => {
-      if (token) {
-        router.replace("/home");
-      }
-    }, [token, router]);
+  useEffect(() => {
+  if (!token) return;
+  if (user?.role === "admin") {
+    router.replace("/admin");
+  } else {
+    router.replace("/home");
+  }
+}, [token, user, router]);
 
 
   const handleChange = (e) => {
@@ -136,10 +139,18 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      <div className="w-full max-w-md rounded-xl bg-[var(--color-base-100)] p-6 shadow-xl">
-        <h1 className="text-2xl font-bold text-center">Create Account</h1>
-        <p className="mt-1 text-center text-sm text-[var(--color-base-content)]/60">
+<div className="relative min-h-screen flex items-center justify-center px-4 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      <div
+  className="
+    w-full max-w-md rounded-xl p-6
+    bg-transparent backdrop-blur-md
+    border border-white/20
+    shadow-xl
+    transition-all duration-300
+    text-white
+  "
+>        <h1 className="text-3xl font-bold text-center text-pink-600">Create Account</h1>
+        <p className="mt-1 text-center text-sm">
           Sign up to get started
         </p>
 
@@ -287,7 +298,7 @@ export default function SignUpPage() {
 
         <p className="mt-4 text-center text-sm">
           Already have an account?{" "}
-          <a href="/signIn" className="font-medium text-[var(--color-primary)]">
+          <a href="/signIn" className="font-medium text-purple-600">
             Sign in
           </a>
         </p>

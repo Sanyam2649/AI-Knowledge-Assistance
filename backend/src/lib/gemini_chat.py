@@ -1,16 +1,20 @@
 import requests
-from config import GEMINI_API_KEY, GEMINI_API_URL
+# from config import GEMINI_API_KEY, GEMINI_API_URL
+from utils.api_config_helper import (
+    get_gemini_api_key,
+    get_gemini_api_url
+)
 
 
 class GeminiClient:
-    def __init__(self, api_key: str = GEMINI_API_KEY, api_url: str = GEMINI_API_URL):
+    def __init__(self):
+        api_key=get_gemini_api_key()
+        api_url=get_gemini_api_url()
         if not api_key:
             raise ValueError("GEMINI_API_KEY is required")
         if not api_url:
             raise ValueError("GEMINI_API_URL is required")
 
-        self.api_key = api_key
-        self.api_url = api_url
         self.headers = {
             "Content-Type": "application/json"
         }

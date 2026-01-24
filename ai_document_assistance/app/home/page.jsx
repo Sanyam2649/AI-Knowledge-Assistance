@@ -23,6 +23,8 @@ export default function AIDocAnalyzer() {
   const [loadingChatHistory, setLoadingChatHistory] = useState(false);
   const [loadingSendMessage, setLoadingSendMessage] = useState(false);
   const [loadingDeleteChat, setLoadingDeleteChat] = useState(false);
+  const [loadingNewChat, setLoadingNewChat] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -37,14 +39,45 @@ export default function AIDocAnalyzer() {
     if (files.length === 0) return;
 
     const token = sessionStorage.getItem('auth_token');
-    const sessionId = sessionStorage.getItem('sessionId');
+    let sessionId = sessionStorage.getItem('sessionId');
 
-    if (!token || !sessionId) {
-      console.error('Missing auth_token or sessionId');
+    if (!token) {
+      console.error('Missing auth_token');
+      setErrorMessage('You must be logged in to upload documents.');
       return;
     }
 
+    // if (!sessionId) {
+    //   try {
+    //     const newSessionRes = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API}/chat/new-session`, {
+    //       method: "POST",
+    //       headers: {
+    //         "Content-Type": "application/json",
+    //         Authorization: `Bearer ${token}`,
+    //       },
+    //     });
+
+    //     const newSessionData = await newSessionRes.json();
+        
+    //     if (!newSessionRes.ok || !newSessionData.success) {
+    //       if (newSessionRes.status === 403) {
+    //         setErrorMessage(newSessionData.error || "You cannot upload documents. Please contact support.");
+    //         return;
+    //       }
+    //       throw new Error(newSessionData.error || "Failed to create new chat session");
+    //     }
+
+    //     sessionId = newSessionData.sessionId;
+    //     sessionStorage.setItem("sessionId", sessionId);
+    //   } catch (err) {
+    //     console.error("Failed to create new session:", err);
+    //     setErrorMessage(err.message || "Failed to create a new chat session. Please try again.");
+    //     return;
+    //   }
+    // }
+
     setLoadingUpload(true);
+    setErrorMessage(null);
     const formData = new FormData();
     files.forEach(file => {
       formData.append('files', file);
@@ -61,7 +94,12 @@ export default function AIDocAnalyzer() {
       });
 
       if (!res.ok) {
-        throw new Error(`Upload failed with status ${res.status}`);
+        const errorData = await res.json().catch(() => ({}));
+        if (res.status === 403) {
+          setErrorMessage(errorData.error || "You cannot upload documents. Your account may be inactive.");
+          return;
+        }
+        throw new Error(errorData.error || `Upload failed with status ${res.status}`);
       }
 
       const data = await res.json();
@@ -82,15 +120,7 @@ export default function AIDocAnalyzer() {
       ]);
     } catch (err) {
       console.error(err);
-      setMessages(prev => [
-        ...prev,
-        {
-          id: Date.now(),
-          type: 'system',
-          content: 'Document upload failed. Please try again.',
-          timestamp: new Date().toLocaleTimeString(),
-        },
-      ]);
+      setErrorMessage(err.message || 'Document upload failed. Please try again.');
     } finally {
       setLoadingUpload(false);
       e.target.value = '';
@@ -136,6 +166,11 @@ export default function AIDocAnalyzer() {
       return;
     }
 
+    // Set the sessionId when loading an existing session
+    if (session.sessionId) {
+      sessionStorage.setItem("sessionId", session.sessionId);
+    }
+
     const formattedMessages = session.messages.map((msg, index) => ({
       id: `${session.sessionId}-${index}`,
       type: msg.role === "user" ? "user" : "ai",
@@ -145,6 +180,7 @@ export default function AIDocAnalyzer() {
 
     setMessages(formattedMessages);
     setShowHistory(false);
+    setErrorMessage(null); // Clear any previous errors
   };
 
   const loadChatHistory = async () => {
@@ -155,6 +191,7 @@ export default function AIDocAnalyzer() {
     }
 
     setLoadingChatHistory(true);
+    setErrorMessage(null);
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API}/chat/all-history`, {
         method: "GET",
@@ -165,7 +202,13 @@ export default function AIDocAnalyzer() {
       });
 
       if (!res.ok) {
-        throw new Error(`Failed to fetch chat history: ${res.status}`);
+        const errorData = await res.json();
+        if (res.status === 403) {
+          // User is inactive
+          setErrorMessage(errorData.error || "Your account has been deactivated. Please contact support.");
+          return;
+        }
+        throw new Error(errorData.error || `Failed to fetch chat history: ${res.status}`);
       }
 
       const data = await res.json();
@@ -178,6 +221,7 @@ export default function AIDocAnalyzer() {
       }
     } catch (err) {
       console.error("Chat history fetch error:", err);
+      setErrorMessage(err.message || "Failed to load chat history. Please try again.");
     } finally {
       setLoadingChatHistory(false);
     }
@@ -192,12 +236,44 @@ export default function AIDocAnalyzer() {
     if (!inputMessage.trim() || loadingSendMessage) return;
 
     const token = sessionStorage.getItem("auth_token");
-    const sessionId = sessionStorage.getItem("sessionId");
+    let sessionId = sessionStorage.getItem("sessionId");
 
-    if (!token || !sessionId) {
-      console.error("Missing auth token or sessionId");
+    if (!token) {
+      console.error("Missing auth token");
+      setErrorMessage("You must be logged in to send messages.");
       return;
     }
+
+    // // If no sessionId, create a new session first
+    // if (!sessionId) {
+    //   try {
+    //     const newSessionRes = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API}/chat/new-session`, {
+    //       method: "POST",
+    //       headers: {
+    //         "Content-Type": "application/json",
+    //         Authorization: `Bearer ${token}`,
+    //       },
+    //     });
+
+    //     const newSessionData = await newSessionRes.json();
+        
+    //     if (!newSessionRes.ok || !newSessionData.success) {
+    //       // Handle inactive user or limit reached
+    //       if (newSessionRes.status === 403) {
+    //         setErrorMessage(newSessionData.error || "You cannot create a new chat session. Please contact support.");
+    //         return;
+    //       }
+    //       throw new Error(newSessionData.error || "Failed to create new chat session");
+    //     }
+
+    //     sessionId = newSessionData.sessionId;
+    //     sessionStorage.setItem("sessionId", sessionId);
+    //   } catch (err) {
+    //     console.error("Failed to create new session:", err);
+    //     setErrorMessage(err.message || "Failed to create a new chat session. Please try again.");
+    //     return;
+    //   }
+    // }
 
     const userMsg = {
       id: Date.now(),
@@ -209,6 +285,7 @@ export default function AIDocAnalyzer() {
     setMessages((prev) => [...prev, userMsg]);
     setInputMessage("");
     setLoadingSendMessage(true);
+    setErrorMessage(null);
 
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API}/chat/ask`, {
@@ -226,7 +303,15 @@ export default function AIDocAnalyzer() {
 
       const data = await res.json();
 
-      if (!data.success) {
+      if (!res.ok || !data.success) {
+        // Handle specific error cases
+        if (res.status === 403) {
+          // User inactive or limit reached
+          setErrorMessage(data.error || "You cannot send messages. Please contact support.");
+          // Remove the user message since it failed
+          setMessages((prev) => prev.filter(msg => msg.id !== userMsg.id));
+          return;
+        }
         throw new Error(data.error || "Failed to get answer");
       }
 
@@ -240,15 +325,9 @@ export default function AIDocAnalyzer() {
       setMessages((prev) => [...prev, aiMsg]);
     } catch (err) {
       console.error(err);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now() + 1,
-          type: "ai",
-          content: "Something went wrong while answering your question. Please try again.",
-          timestamp: new Date().toLocaleTimeString(),
-        },
-      ]);
+      // Remove the user message since it failed
+      setMessages((prev) => prev.filter(msg => msg.id !== userMsg.id));
+      setErrorMessage(err.message || "Something went wrong while answering your question. Please try again.");
     } finally {
       setLoadingSendMessage(false);
     }
@@ -259,6 +338,7 @@ export default function AIDocAnalyzer() {
     if (!token || !sessionId || loadingDeleteChat) return;
 
     setLoadingDeleteChat(true);
+    setErrorMessage(null);
     try {
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_BACKEND_API}/chat/delete-chat?sessionId=${sessionId}`,
@@ -271,25 +351,79 @@ export default function AIDocAnalyzer() {
       );
 
       if (!res.ok) {
-        throw new Error(`Delete failed: ${res.status}`);
+        const errorData = await res.json();
+        if (res.status === 403) {
+          // User is inactive
+          setErrorMessage(errorData.error || "You cannot delete chat sessions. Your account may be inactive.");
+          return;
+        }
+        throw new Error(errorData.error || `Delete failed: ${res.status}`);
       }
       
       setChatHistory((prev) =>
         prev.filter((chat) => chat.sessionId !== sessionId)
       );
 
-      setMessages((prev) =>
-        prev.length > 0 ? [] : prev
-      );
+      // Clear messages if we're deleting the current session
+      const currentSessionId = sessionStorage.getItem("sessionId");
+      if (currentSessionId === sessionId) {
+        setMessages([]);
+        sessionStorage.removeItem("sessionId");
+      }
     } catch (err) {
       console.error("Failed to delete chat session", err);
+      setErrorMessage(err.message || "Failed to delete chat session. Please try again.");
     } finally {
       setLoadingDeleteChat(false);
     }
   };
 
-  const startNewChat = () => {
+  const startNewChat = async () => {
+    const token = sessionStorage.getItem("auth_token");
+    if (!token) {
+      console.error("Missing auth token");
+      setErrorMessage("You must be logged in to start a new chat.");
+      return;
+    }
+
+    setLoadingNewChat(true);
+    setErrorMessage(null);
     setMessages([]);
+
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API}/chat/new-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        if (res.status === 403) {
+          // User inactive or limit reached
+          setErrorMessage(data.error || "You cannot create a new chat session. Please contact support.");
+          return;
+        }
+        throw new Error(data.error || "Failed to create new chat session");
+      }
+
+      // Store the new session ID
+      sessionStorage.setItem("sessionId", data.sessionId);
+            if (data.limit_info) {
+        const { current_count, limit } = data.limit_info;
+        if (limit !== null && limit !== undefined) {
+          console.log(`Chat sessions: ${current_count}/${limit}`);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to create new chat session:", err);
+      setErrorMessage(err.message || "Failed to create a new chat session. Please try again.");
+    } finally {
+      setLoadingNewChat(false);
+    }
   };
 
   return (
@@ -304,6 +438,7 @@ export default function AIDocAnalyzer() {
           startNewChat={startNewChat}
           loadingUpload={loadingUpload}
           loadingDocuments={loadingDocuments}
+          loadingNewChat={loadingNewChat}
         />
         <Chat 
           setShowSidebar={setShowSidebar} 
@@ -317,6 +452,8 @@ export default function AIDocAnalyzer() {
           inputMessage={inputMessage} 
           logout={logout}
           loadingSendMessage={loadingSendMessage}
+          errorMessage={errorMessage}
+          setErrorMessage={setErrorMessage}
         />
         {showHistory && (
           <ChatHistory

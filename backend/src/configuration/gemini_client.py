@@ -1,7 +1,9 @@
 import requests
 import time
 from typing import List, Dict
-from config import GEMINI_API_KEY, GEMINI_API_URL
+from utils.api_config_helper import (
+    get_gemini_api_url, get_gemini_api_key
+)
 
 
 class geminiClient:
@@ -9,7 +11,9 @@ class geminiClient:
     Gemini-backed client that preserves Grok/OpenAI-style interface
     """
 
-    def __init__(self, api_key: str = GEMINI_API_KEY, api_url: str = GEMINI_API_URL):
+    def __init__(self):
+        api_url=get_gemini_api_url()
+        api_key=get_gemini_api_key()
         if not api_key:
             raise ValueError("GEMINI_API_KEY is required")
         if not api_url:

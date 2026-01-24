@@ -7,7 +7,7 @@ import { useAuth } from "../context/userContext";
 export default function SignInPage() {
   const { login } = useAuth();
   const router = useRouter();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -16,10 +16,14 @@ export default function SignInPage() {
   
 
   useEffect(() => {
-    if (token) {
-      router.replace("/home");
-    }
-  }, [token, router]);
+  if (!token) return;
+
+  if (user?.role === "admin") {
+    router.replace("/admin");
+  } else {
+    router.replace("/home");
+  }
+}, [token, user, router]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -58,7 +62,11 @@ export default function SignInPage() {
       sessionStorage.setItem("sessionId", sessionId);
       
       login(data.token, data.user, sessionId);
-      router.push("/home");
+      if (data.user?.role === "admin") {
+        router.push("/admin");
+      } else {
+        router.push("/home");
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -68,10 +76,17 @@ export default function SignInPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-<div className="w-full max-w-md rounded-2xl bg-[var(--color-base-100)] p-8 shadow-2xl">
+<div  className="
+    w-full max-w-md rounded-xl p-6
+    bg-transparent backdrop-blur-md
+    border border-white/20
+    shadow-xl
+    transition-all duration-300
+    text-white
+  ">
   <div className="space-y-2 text-center">
-    <h1 className="text-3xl font-bold tracking-tight">Welcome Back</h1>
-    <p className="text-sm text-[var(--color-base-content)]/60">
+    <h1 className="text-3xl font-bold tracking-tight text-pink-600">Welcome Back</h1>
+    <p className="text-sm">
       Sign in to your account
     </p>
   </div>
@@ -144,11 +159,11 @@ export default function SignInPage() {
   </form>
 
   {/* Footer Link */}
-  <p className="mt-6 text-center text-sm text-[var(--color-base-content)]/70">
-    Don't have an account?{" "}
+  <p className="mt-6 text-center text-sm ">
+    Don`t have an account?{" "}
     <a 
       href="/signup" 
-      className="font-semibold text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary)]/80"
+      className="font-semibold  transition-colors text-purple-600"
     >
       Sign up
     </a>

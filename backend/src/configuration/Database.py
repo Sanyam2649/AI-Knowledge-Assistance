@@ -10,6 +10,7 @@ chat_sessions_collection = db.chat_sessions
 documents_collection = db.documents
 document_chunks_collection = db.document_chunks
 messages_collection = db.messages
+api_config_collection = db.api_config
 
 def connect_to_database():
     """

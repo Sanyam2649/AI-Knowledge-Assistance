@@ -13,6 +13,7 @@ def chat_session_schema(data):
         "userId": data["userId"],     
         "sessionId": data["sessionId"], 
         "messages": data.get("messages", []),
+        "is_active": True,
         "createdAt": datetime.utcnow(),
         "updatedAt": datetime.utcnow()
     }

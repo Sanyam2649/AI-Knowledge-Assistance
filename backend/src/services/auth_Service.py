@@ -1,6 +1,4 @@
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
-from config import EMBEDDING_MODEL
 from configuration.Database import users_collection, documents_collection, document_chunks_collection
 from core.user_auth import generate_jwt
 from models.user import user_schema
@@ -81,6 +79,29 @@ def login_user(data: dict):
     return {"success": True, "user": user, "token": token}, 200
 
 def handle_upload_documents(files, user_id, session_id):
+    """
+    Handles uploading documents for a user.
+    Blocks inactive users and returns results for each file.
+    """
+
+    # Fetch user with only is_active field
+    user = users_collection.find_one(
+        {"_id": ObjectId(user_id)},
+        {"is_active": 1}
+    )
+
+    # Treat user as inactive if not found or is_active is False/None
+    is_active = user.get("is_active", False) if user else False
+    if not is_active:
+        # Return a structured response instead of raising an exception
+        return {
+            "results": [],
+            "summary": {"totalFiles": len(files), "totalChunks": 0},
+            "status": "error",
+            "message": "Your account is inactive. Document upload is not allowed."
+        }, 403
+
+    # Active user: process files
     results = []
     total_chunks_processed = 0
 
@@ -114,7 +135,6 @@ def handle_upload_documents(files, user_id, session_id):
             )
             document_id = str(doc_insert.inserted_id)
 
-            mongo_chunk_ids = []
             for c in chunks:
                 chunk_doc = document_chunk_schema({
                     "document_id": document_id,
@@ -122,12 +142,9 @@ def handle_upload_documents(files, user_id, session_id):
                     "content": c["text"],
                     "embedding": None
                 })
-                res = document_chunks_collection.insert_one(chunk_doc)
-                mongo_chunk_ids.append(str(res.inserted_id))
-
-            for c in chunks:
+                document_chunks_collection.insert_one(chunk_doc)
                 c["metadata"]["documentId"] = document_id
-            
+
             store_result = store_documents(chunks, user_id, session_id)
             if store_result["success"]:
                 total_chunks_processed += len(chunks)
@@ -153,7 +170,7 @@ def handle_upload_documents(files, user_id, session_id):
         "totalChunks": total_chunks_processed,
     }
 
-    return {"results": results, "summary": summary}
+    return {"results": results, "summary": summary}, 200
 
 def delete_documents(document_id: str, user_id: str) -> bool:
     document_object_id = ObjectId(document_id)

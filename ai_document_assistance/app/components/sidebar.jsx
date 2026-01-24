@@ -11,7 +11,8 @@ const Sidebar = ({
     documents,
     startNewChat,
     loadingUpload,
-    loadingDocuments
+    loadingDocuments,
+    loadingNewChat
 }) => {
   return (
           <div
@@ -34,7 +35,7 @@ const Sidebar = ({
             documents={documents}
             loadingDocuments={loadingDocuments}
           />
-          <NewChat startNewChat={startNewChat} />
+          <NewChat startNewChat={startNewChat} loadingNewChat={loadingNewChat} />
         </div>
       </div>
   )

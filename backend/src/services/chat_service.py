@@ -11,23 +11,6 @@ from lib.vector_Store import search_similar_documents
 from configuration.gemini_client import gemini
 from lib.vector_Store import answer_question, save_message_to_vector_store
 
-def _get_fallback_message() -> str:
-    """
-    Returns a random fallback message when AI service is unavailable.
-    """
-    fallback_messages = [
-        "I'm currently experiencing high demand and may take a moment to respond. Based on your documents, I found relevant information, but I'm temporarily unable to process it fully. Please try again in a few moments.",
-        "The AI service is temporarily busy. I've found relevant information in your documents, but I need a moment to process your question. Please try again shortly.",
-        "I'm processing a lot of requests right now. I found relevant content in your documents, but I'll need you to try again in a moment for a complete answer.",
-        "Due to high traffic, I'm experiencing a slight delay. I've located relevant information in your documents - please try your question again in a few seconds.",
-        "I'm temporarily at capacity. I found relevant information in your uploaded documents, but I need a brief moment before I can provide a full response. Please try again shortly.",
-        "The service is currently handling many requests. I've identified relevant content in your documents - please wait a moment and try again for a detailed answer.",
-        "I'm experiencing temporary high demand. I found information related to your question in your documents, but I need a moment to process it. Please try again soon.",
-        "Due to current service load, I'm temporarily unable to provide a full response. I've found relevant information in your documents - please try again in a few moments.",
-    ]
-    return random.choice(fallback_messages)
-
-
 def _enabled_document_ids_for_user(user_id: str) -> set[str]:
     """
     Returns enabled document ids for a user as strings.
@@ -38,7 +21,6 @@ def _enabled_document_ids_for_user(user_id: str) -> set[str]:
         {"_id": 1},
     )
     return {str(d["_id"]) for d in docs}
-
 
 def _filter_matches_to_enabled_docs(matches: List[Dict[str, Any]], enabled_doc_ids: set[str]) -> List[Dict[str, Any]]:
     if not enabled_doc_ids:
@@ -80,82 +62,6 @@ def _filter_matches_to_enabled_docs(matches: List[Dict[str, Any]], enabled_doc_i
         print(f"⚠️ {missing_doc_id_count} matches missing documentId (likely from old uploads)")
     
     return filtered
-
-
-# def build_rag_context(matches: List[Dict[str, Any]], max_chars: int = 4000) -> Tuple[str, List[Dict[str, Any]]]:
-#     """
-#     Build a context string plus normalized sources list from Pinecone matches.
-#     """
-#     sources: List[Dict[str, Any]] = []
-#     parts: List[str] = []
-#     used = 0
-
-#     for m in matches:
-#         md = m.get("metadata") or {}
-#         text = (m.get("text") or md.get("text") or "").strip()
-#         if not text:
-#             continue
-
-#         source = {
-#             "documentId": md.get("documentId"),
-#             "fileName": md.get("fileName"),
-#             "chunkIndex": md.get("chunkIndex"),
-#             "score": m.get("hybridScore", m.get("semanticScore", m.get("score"))),
-#         }
-#         sources.append(source)
-
-#         snippet = text[:1000]
-#         block = f"[Source: {source.get('fileName')} | chunk {source.get('chunkIndex')}]\n{snippet}\n"
-#         if used + len(block) > max_chars:
-#             break
-#         parts.append(block)
-#         used += len(block)
-
-#     return "\n".join(parts).strip(), sources
-
-# def llm_answer_with_gemini(question: str, context: str) -> str:
-#     """
-#     Uses Gemini LLM to answer grounded strictly in retrieved documents.
-#     """
-#     if not context:
-#         return "I couldn't find relevant information in your uploaded documents for that question."
-
-#     messages = [
-#         {
-#             "role": "system",
-#             "content": (
-#                 "You are a document-based assistant.\n"
-#                 "Answer ONLY using the provided context.\n"
-#                 "If the answer is not in the context, say you don't know.\n"
-#                 "Be concise, factual, and helpful."
-#             )
-#         },
-#         {
-#             "role": "user",
-#             "content": (
-#                 f"Context:\n{context}\n\n"
-#                 f"Question:\n{question}"
-#             )
-#         }
-#     ]
-    
-#     try:
-#         response = gemini.chat_completion(
-#             messages=messages,
-#             temperature=0.1,
-#             max_tokens=512
-#         )
-        
-#         if not response or "choices" not in response or not response["choices"]:
-#             print("❌ Invalid response format from Gemini API")
-#             return _get_fallback_message()
-        
-#         return response["choices"][0]["message"]["content"].strip()
-#     except Exception as e:
-#         print(f"❌ Error calling Gemini API: {e}")
-#         # Return fallback message instead of raising
-#         return _get_fallback_message()
-
 
 def ask_rag_question(*, user_id: str, session_id: str, question: str, top_k: int = 5) -> Dict[str, Any]:
     try:
@@ -201,10 +107,16 @@ def ask_rag_question(*, user_id: str, session_id: str, question: str, top_k: int
         
         answer = answer_question(query=question, user_id=user_id, session_id=session_id, top_k=top_k)
 
-        save_message(user_id=user_id, session_id=session_id, role="user", message=question)
+        # Save user message - this will check limits if it's a new session
+        user_msg_result = save_message(user_id=user_id, session_id=session_id, role="user", message=question)
+        if not user_msg_result.get("success"):
+            # If saving failed due to limits or inactive user, return the error
+            return user_msg_result
+        
+        # Save assistant message (session already exists, so no limit check needed)
         save_message(user_id=user_id, session_id=session_id, role="assistant", message=answer)
-        save_message_to_vector_store(user_id=user_id, session_id=session_id, role="user", message=question),
-        save_message_to_vector_store(user_id=user_id, session_id=session_id, role="assistant", message=answer),
+        save_message_to_vector_store(user_id=user_id, session_id=session_id, role="user", message=question)
+        save_message_to_vector_store(user_id=user_id, session_id=session_id, role="assistant", message=answer)
 
         return {"success": True, "answer": answer}
     except Exception as e:

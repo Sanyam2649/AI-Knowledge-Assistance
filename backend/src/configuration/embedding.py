@@ -1,6 +1,7 @@
 from sentence_transformers import SentenceTransformer
-from config import HF_MODAL
+from utils.api_config_helper import get_hf_modal
 
+HF_MODAL=get_hf_modal()
 model = SentenceTransformer(HF_MODAL)
 EXPECTED_EMBEDDING_DIM = model.get_sentence_embedding_dimension()
 
